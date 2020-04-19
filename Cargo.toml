@@ -10,3 +10,4 @@ repository = "https://github.com/rossmacarthur/complexity"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+syn = { version = "1.0.17", features = ["full"] }
