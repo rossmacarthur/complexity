@@ -1,0 +1,12 @@
+[package]
+name = "complexity"
+version = "0.0.0"
+authors = ["Ross MacArthur <ross@macarthur.io>"]
+edition = "2018"
+description = "Calculate cognitive complexity of Rust code."
+readme = "README.md"
+homepage = "https://github.com/rossmacarthur/complexity"
+repository = "https://github.com/rossmacarthur/complexity"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
