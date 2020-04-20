@@ -77,6 +77,15 @@ let func: ItemFn = parse_str(code)?;
 assert_eq!(func.complexity(), 1);
 ```
 
+An example is provided to calculate and nicely print out the cognitive
+complexity of each function and method in an entire Rust file. See
+[examples/lint-files.rs](examples/lint-files.rs). You can run it on Rust files
+like this:
+
+```sh
+cargo run --example lint-files -- src/**/*.rs
+```
+
 [`Complexity`]: https://docs.rs/complexity/0.1/trait.Complexity.html
 [`syn`]: https://docs.rs/syn/1
 
