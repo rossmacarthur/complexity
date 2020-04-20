@@ -1,6 +1,20 @@
-# complexity
+<h1 align="center">complexity</h1>
+<div align="center">
+  <strong>Calculate cognitive complexity of Rust code.</strong>
+</div>
+<br />
+<div align="center">
+  <a href="https://crates.io/crates/complexity">
+    <img src="https://img.shields.io/crates/v/complexity.svg" alt="Crates.io version" />
+  </a>
+  <a href="https://docs.rs/complexity">
+    <img src="https://docs.rs/complexity/badge.svg" alt="Documentation" />
+  </a>
+  <a href="https://github.com/rossmacarthur/complexity/actions?query=workflow%3Abuild">
+    <img src="https://img.shields.io/github/workflow/status/rossmacarthur/complexity/build/master" alt="Build status" />
+  </a>
+</div>
 
-Calculate cognitive complexity of Rust code.
 
 Based on [Cognitive Complexity][pdf] by G. Ann Campbell.
 
