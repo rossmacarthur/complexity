@@ -1,0 +1,61 @@
+name: build
+
+on: [push]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        toolchain: [stable, beta, nightly]
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.toolchain }}
+        profile: minimal
+        override: true
+
+    - name: Test
+      run: cargo test
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Rustfmt
+      run: cargo fmt -- --check
+
+    - name: Clippy
+      run: cargo clippy -- -D warnings -D clippy::use-self -D clippy::items-after-statements -D clippy::if-not-else
+
+  publish:
+    if: startsWith(github.event.ref, 'refs/tags')
+    needs: [test, lint]
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Check tag against package version
+      run: grep '^version = ' Cargo.toml | grep -q "${GITHUB_REF#refs/tags/}"
+
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Publish
+      run: cargo publish --token "${{ secrets.CRATES_IO_TOKEN }}"
