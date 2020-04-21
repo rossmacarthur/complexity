@@ -10,53 +10,44 @@
 //! `continue` and `break` statements increment the complexity by one.
 //!
 //! ```
-//! # fn main() -> syn::Result<()> {
 //! use complexity::Complexity;
-//! use syn::{ItemFn, parse_str};
+//! use syn::{ItemFn, parse_quote};
 //!
-//! let code = r#"
-//! fn sum_of_primes(max: u64) -> u64 {
-//!     let mut total = 0;
-//!     'outer: for i in 1..=max {
-//!         for j in 2..i {
-//!             if i % j == 0 {
-//!                 continue 'outer;
+//! let func: ItemFn = parse_quote! {
+//!     fn sum_of_primes(max: u64) -> u64 {
+//!         let mut total = 0;
+//!         'outer: for i in 1..=max {
+//!             for j in 2..i {
+//!                 if i % j == 0 {
+//!                     continue 'outer;
+//!                 }
 //!             }
+//!             total += i;
 //!         }
-//!         total += i;
 //!     }
-//! }"#;
-//!
-//! let func: ItemFn = parse_str(code)?;
+//! };
 //! assert_eq!(func.complexity(), 7);
-//! #
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! However, a `match` only increases the complexity by one no matter how many
 //! branches there are.
 //!
 //! ```
-//! # fn main() -> syn::Result<()> {
 //! use complexity::Complexity;
-//! use syn::{ItemFn, parse_str};
+//! use syn::{ItemFn, parse_quote};
 //!
-//! let code = r#"
-//! fn get_words(number: u64) -> &'static str {
-//!     match number {
-//!         1 => "one",
-//!         2 => "a couple",
-//!         3 => "a few",
-//!         _ => "lots",
+//! let func: ItemFn = parse_quote! {
+//!     fn get_words(number: u64) -> &str {
+//!         match number {
+//!             1 => "one",
+//!             2 => "a couple",
+//!             3 => "a few",
+//!             _ => "lots",
+//!         }
 //!     }
-//! }"#;
-//!
-//! let func: ItemFn = parse_str(code)?;
+//! };
 //! assert_eq!(func.complexity(), 1);
-//! #
-//! # Ok(())
-//! # }
+//! ```
 
 use syn::*;
 
