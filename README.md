@@ -82,7 +82,7 @@ complexity of each function and method in an entire Rust file. See
 like this:
 
 ```sh
-cargo run --example lint-files -- src/**/*.rs
+cargo run --example lint-files -- src/
 ```
 
 [`Complexity`]: https://docs.rs/complexity/0.1/trait.Complexity.html

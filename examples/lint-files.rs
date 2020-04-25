@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ansi_term::Color::Blue;
+use ansi_term::Color::{Blue, Red};
 use anyhow::{Context, Result};
 use complexity::Complexity;
 use structopt::StructOpt;
@@ -37,9 +37,11 @@ fn lint(path: &Path) -> Result<Vec<Function>> {
                     if let ImplItem::Method(method) = impl_item {
                         match &*item_impl.self_ty {
                             Type::Path(TypePath { qself: None, path }) => {
-                                let ty = path.segments.last().unwrap().ident.to_string();
-                                let fn_name = method.sig.ident.to_string();
-                                let name = format!("{}::{}", ty, fn_name);
+                                let name = format!(
+                                    "{}::{}",
+                                    path.segments.last().unwrap().ident,
+                                    method.sig.ident
+                                );
                                 let complexity = method.complexity();
                                 functions.push(Function { name, complexity });
                             }
@@ -60,28 +62,80 @@ fn lint(path: &Path) -> Result<Vec<Function>> {
     Ok(functions)
 }
 
+fn resolve_paths(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    let mut result = Vec::with_capacity(paths.len());
+    for path in paths {
+        if path.is_dir() {
+            result.extend(
+                walkdir::WalkDir::new(path)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                    .filter(|e| e.path().extension().map(|s| s == "rs").unwrap_or(false))
+                    .map(walkdir::DirEntry::into_path),
+            );
+        } else {
+            result.push(path)
+        }
+    }
+    Ok(result)
+}
+
+fn run(paths: Vec<PathBuf>, max_complexity: &Option<u64>) -> Result<bool> {
+    let mut table = tabular::Table::new("{:<}    {:>}");
+    let mut result = false;
+    for path in resolve_paths(paths)? {
+        let mut functions = lint(&path)?;
+        functions.sort();
+        for (index, function) in functions
+            .into_iter()
+            .rev()
+            .filter(|f| max_complexity.map(|m| f.complexity >= m).unwrap_or(true))
+            .enumerate()
+        {
+            if index == 0 {
+                table.add_heading(format!(
+                    "\n{}: {}",
+                    Blue.bold().paint("file"),
+                    Blue.bold().paint(path.display().to_string()),
+                ));
+            }
+            table.add_row(tabular::row!(function.name, function.complexity));
+            result = true;
+        }
+    }
+    print!("{}", table);
+    Ok(result)
+}
+
 #[derive(Debug, StructOpt)]
 struct Opt {
     /// One or more files to calculate cognitive complexity for.
     #[structopt(name = "PATH")]
     paths: Vec<PathBuf>,
+    /// Require functions/methods that have a complexity greater than or equal
+    /// to this.
+    #[structopt(short, long, name = "INT")]
+    max_complexity: Option<u64>,
 }
 
 fn main() -> Result<()> {
-    let opt = Opt::from_args();
-    let mut table = tabular::Table::new("{:<}    {:>}");
-    for path in opt.paths {
-        let mut functions = lint(&path)?;
-        functions.sort();
-        table.add_heading(format!(
-            "\n{}: {}",
-            Blue.bold().paint("file"),
-            Blue.bold().paint(path.display().to_string()),
-        ));
-        for function in functions.into_iter().rev() {
-            table.add_row(tabular::row!(function.name, function.complexity));
+    let Opt {
+        paths,
+        max_complexity,
+    } = Opt::from_args();
+
+    if !run(paths, &max_complexity)? {
+        if let Some(max_complexity) = max_complexity {
+            eprintln!(
+                "\n{}",
+                Red.paint(format!(
+                    "The indicated methods and functions did not meet the required complexity of \
+                     {}",
+                    max_complexity
+                )),
+            );
+            std::process::exit(1);
         }
     }
-    print!("{}", table);
     Ok(())
 }
