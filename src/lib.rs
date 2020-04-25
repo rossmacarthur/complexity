@@ -49,7 +49,13 @@
 //! assert_eq!(func.complexity(), 1);
 //! ```
 
+use std::{iter, ops};
+
 use syn::*;
+
+/////////////////////////////////////////////////////////////////////////
+// Complexity trait
+/////////////////////////////////////////////////////////////////////////
 
 mod private {
     pub trait Sealed {}
@@ -68,46 +74,119 @@ pub trait Complexity: private::Sealed {
 
 impl Complexity for Expr {
     fn complexity(&self) -> u64 {
-        eval_expr(self)
+        eval_expr(self, Nesting::zero()).0.into()
     }
 }
 
 impl Complexity for ItemFn {
     fn complexity(&self) -> u64 {
-        eval_block(&self.block)
+        eval_block(&self.block, Nesting::zero()).0.into()
     }
 }
 
 impl Complexity for ImplItemMethod {
     fn complexity(&self) -> u64 {
-        eval_block(&self.block)
+        eval_block(&self.block, Nesting::zero()).0.into()
     }
 }
 
+/////////////////////////////////////////////////////////////////////////
+// Index type
+/////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Copy, Clone)]
+struct Index(u32);
+
+impl Index {
+    /// Construct a new zero `Index`.
+    #[inline]
+    fn zero() -> Self {
+        Self(0)
+    }
+
+    /// Construct a new `Index` of one.
+    #[inline]
+    fn one() -> Self {
+        Self(1)
+    }
+
+    /// Construct a new `Index` based on the Nesting.
+    #[inline]
+    fn with_nesting(n: Nesting) -> Self {
+        Self(1 + n.0)
+    }
+}
+
+impl ops::Add for Index {
+    type Output = Self;
+
+    /// Add one `Index` to another.
+    #[inline]
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
+}
+
+impl iter::Sum<Index> for Index {
+    fn sum<I>(iter: I) -> Self
+    where
+        I: Iterator<Item = Self>,
+    {
+        iter.fold(Self::zero(), ops::Add::add)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////
+// Nesting type
+/////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Copy, Clone)]
+struct Nesting(u32);
+
+impl Nesting {
+    #[inline]
+    fn zero() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    fn increase(self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////
+// Evaluation functions
+/////////////////////////////////////////////////////////////////////////
+
 /// Returns the complexity of a `syn::Block`.
-fn eval_block(block: &Block) -> u64 {
-    block.stmts.iter().map(eval_stmt).sum::<u64>()
+fn eval_block(block: &Block, nesting: Nesting) -> Index {
+    block
+        .stmts
+        .iter()
+        .map(|e| eval_stmt(e, nesting))
+        .sum::<Index>()
 }
 
 /// Returns the complexity of a `syn::Stmt`.
-fn eval_stmt(stmt: &Stmt) -> u64 {
+fn eval_stmt(stmt: &Stmt, nesting: Nesting) -> Index {
     match stmt {
         Stmt::Local(Local {
             init: Some((_, expr)),
             ..
-        }) => eval_expr(expr),
-        Stmt::Local(Local { init: None, .. }) => 0,
-        Stmt::Item(item) => eval_item(item),
-        Stmt::Expr(expr) | Stmt::Semi(expr, _) => eval_expr(expr),
+        }) => eval_expr(expr, nesting),
+        Stmt::Local(Local { init: None, .. }) => Index::zero(),
+        Stmt::Item(item) => eval_item(item, nesting),
+        Stmt::Expr(expr) | Stmt::Semi(expr, _) => eval_expr(expr, nesting),
     }
 }
 
 /// Returns the complexity of a `syn::Item`.
-fn eval_item(item: &Item) -> u64 {
+fn eval_item(item: &Item, n: Nesting) -> Index {
     match item {
-        Item::Const(ItemConst { expr, .. }) => eval_expr(expr),
-        Item::Static(ItemStatic { expr, .. }) => eval_expr(expr),
-        _ => 0,
+        Item::Const(ItemConst { expr, .. }) => eval_expr(expr, n),
+        Item::Static(ItemStatic { expr, .. }) => eval_expr(expr, n),
+        _ => Index::zero(),
     }
 }
 
@@ -116,12 +195,12 @@ fn eval_item(item: &Item) -> u64 {
 /// This function contains most of the logic for calculating cognitive
 /// complexity. Expressions that create nesting increase the complexity and
 /// expressions that increase the branching increasing the complexity.
-fn eval_expr(expr: &Expr) -> u64 {
+fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
     match expr {
         // Expressions that map to multiple expressions.
         // --------------------------------------------
         Expr::Array(ExprArray { elems, .. }) | Expr::Tuple(ExprTuple { elems, .. }) => {
-            elems.iter().map(eval_expr).sum()
+            elems.iter().map(|e| eval_expr(e, nesting)).sum()
         }
 
         // Expressions that have a left and right part.
@@ -138,11 +217,15 @@ fn eval_expr(expr: &Expr) -> u64 {
             expr: left,
             len: right,
             ..
-        }) => eval_expr(left) + eval_expr(right),
+        }) => eval_expr(left, nesting) + eval_expr(right, nesting),
 
         Expr::Range(ExprRange { from, to, .. }) => {
-            from.as_ref().map(|e| eval_expr(e)).unwrap_or(0)
-                + to.as_ref().map(|e| eval_expr(e)).unwrap_or(0)
+            from.as_ref()
+                .map(|e| eval_expr(e, nesting))
+                .unwrap_or_else(Index::zero)
+                + to.as_ref()
+                    .map(|e| eval_expr(e, nesting))
+                    .unwrap_or_else(Index::zero)
         }
 
         // Expressions that create a nested block like `async { .. }`.
@@ -151,7 +234,7 @@ fn eval_expr(expr: &Expr) -> u64 {
         | Expr::Block(ExprBlock { block, .. })
         | Expr::Loop(ExprLoop { body: block, .. })
         | Expr::TryBlock(ExprTryBlock { block, .. })
-        | Expr::Unsafe(ExprUnsafe { block, .. }) => 1 + eval_block(block),
+        | Expr::Unsafe(ExprUnsafe { block, .. }) => eval_block(block, nesting.increase()),
 
         // Expressions that wrap a single expression.
         // ------------------------------------------
@@ -175,48 +258,178 @@ fn eval_expr(expr: &Expr) -> u64 {
         | Expr::Unary(ExprUnary { expr, .. })
         | Expr::Yield(ExprYield {
             expr: Some(expr), ..
-        }) => eval_expr(expr),
+        }) => eval_expr(expr, nesting),
 
         // Expressions that introduce branching.
         // ------------------------------------
-        Expr::ForLoop(ExprForLoop { expr, body, .. }) => 2 + eval_expr(expr) + eval_block(body),
-        Expr::While(ExprWhile { cond, body, .. }) => 2 + eval_expr(cond) + eval_block(body),
         Expr::If(ExprIf {
             cond,
             then_branch,
             else_branch,
             ..
-        }) => 2 + eval_expr(cond) + eval_block(then_branch) + eval_opt_t_expr(else_branch),
+        }) => {
+            Index::with_nesting(nesting)
+                + eval_expr(cond, nesting)
+                + eval_block(then_branch, nesting.increase())
+                + else_branch
+                    .as_ref()
+                    .map(|(_, expr)| Index::one() + eval_expr(&expr, nesting.increase()))
+                    .unwrap_or_else(Index::zero)
+        }
         Expr::Match(ExprMatch { expr, arms, .. }) => {
-            1 + eval_expr(expr)
+            Index::with_nesting(nesting)
+                + eval_expr(expr, nesting)
                 + arms
                     .iter()
-                    .map(|arm| eval_opt_t_expr(&arm.guard) + eval_expr(&arm.body))
-                    .sum::<u64>()
+                    .map(|arm| {
+                        eval_opt_t_expr(&arm.guard, nesting)
+                            + eval_expr(&arm.body, nesting.increase())
+                    })
+                    .sum::<Index>()
         }
-        Expr::Continue(_) | Expr::Break(_) => 1,
+        Expr::ForLoop(ExprForLoop { expr, body, .. }) => {
+            Index::with_nesting(nesting)
+                + eval_expr(expr, nesting)
+                + eval_block(body, nesting.increase())
+        }
+        Expr::While(ExprWhile { cond, body, .. }) => {
+            Index::with_nesting(nesting) + eval_expr(cond, nesting) + eval_block(body, nesting)
+        }
+        Expr::Continue(_) | Expr::Break(_) => Index::one(),
 
         // Expressions that call functions / construct types.
         // -------------------------------------------------
         Expr::Struct(ExprStruct { fields, rest, .. }) => {
-            fields.iter().map(|v| eval_expr(&v.expr)).sum::<u64>()
-                + rest.as_ref().map(|e| eval_expr(e)).unwrap_or(0)
+            fields
+                .iter()
+                .map(|v| eval_expr(&v.expr, nesting))
+                .sum::<Index>()
+                + rest
+                    .as_ref()
+                    .map(|e| eval_expr(e, nesting))
+                    .unwrap_or_else(Index::zero)
         }
         Expr::Call(ExprCall { func, args, .. }) => {
-            eval_expr(func) + args.iter().map(eval_expr).sum::<u64>()
+            eval_expr(func, nesting) + args.iter().map(|a| eval_expr(a, nesting)).sum::<Index>()
         }
         Expr::MethodCall(ExprMethodCall { receiver, args, .. }) => {
-            eval_expr(receiver) + args.iter().map(eval_expr).sum::<u64>()
+            eval_expr(receiver, nesting) + args.iter().map(|a| eval_expr(a, nesting)).sum::<Index>()
         }
 
-        _ => 0,
+        _ => Index::zero(),
     }
 }
 
 /// Returns the complexity of a optional `syn::Expr`.
-fn eval_opt_t_expr<T>(opt_expr: &Option<(T, Box<Expr>)>) -> u64 {
+fn eval_opt_t_expr<T>(opt_expr: &Option<(T, Box<Expr>)>, nesting: Nesting) -> Index {
     opt_expr
         .as_ref()
-        .map(|(_, expr)| eval_expr(expr))
-        .unwrap_or(0)
+        .map(|(_, expr)| eval_expr(expr, nesting))
+        .unwrap_or_else(Index::zero)
+}
+
+/////////////////////////////////////////////////////////////////////////
+// Unit tests
+/////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn if_statement() {
+        let expr: Expr = parse_quote! {
+            if true {             // +1
+                println!("test");
+            }
+        };
+        assert_eq!(expr.complexity(), 1);
+    }
+
+    #[test]
+    fn if_statement_nesting_increment() {
+        let expr: Expr = parse_quote! {
+            if true {                 // +1
+                if true {             // +2 (nesting = 1)
+                    println!("test");
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn if_else_statement_no_nesting_increment() {
+        let expr: Expr = parse_quote! {
+            if true {                 // +1
+                if true {             // +2 (nesting = 1)
+                    println!("test");
+                } else {              // +1
+                    println!("test");
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 4);
+    }
+
+    #[test]
+    fn for_loop() {
+        let expr: Expr = parse_quote! {
+            for element in iterable { // +1
+                if true {             // +2 (nesting = 1)
+                    println!("test");
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn for_loop_nesting_increment() {
+        let expr: Expr = parse_quote! {
+            if true {                     // +1
+                for element in iterable { // +2 (nesting = 1)
+                    println!("test");
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn while_loop() {
+        let expr: Expr = parse_quote! {
+            while true {              // +1
+                if true {             // +2 (nesting = 1)
+                    println!("test");
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn while_loop_nesting_increment() {
+        let expr: Expr = parse_quote! {
+            if true {                 // +1
+                while true {          // +2 (nesting = 1)
+                    println!("test");
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn match_statement_nesting_increment() {
+        let expr: Expr = parse_quote! {
+            if true {                          // +1
+                match true {                   // +2 (nesting = 1)
+                    true => println!("test"),
+                    false => println!("test"),
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 3);
+    }
 }
