@@ -53,6 +53,7 @@ use syn::*;
 
 mod private {
     pub trait Sealed {}
+    impl Sealed for super::Expr {}
     impl Sealed for super::ItemFn {}
     impl Sealed for super::ImplItemMethod {}
 }
@@ -63,6 +64,12 @@ mod private {
 pub trait Complexity: private::Sealed {
     /// Returns the cognitive complexity index for the implementor.
     fn complexity(&self) -> u64;
+}
+
+impl Complexity for Expr {
+    fn complexity(&self) -> u64 {
+        eval_expr(self)
+    }
 }
 
 impl Complexity for ItemFn {
