@@ -293,7 +293,9 @@ fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
                 + eval_block(body, nesting.increase())
         }
         Expr::While(ExprWhile { cond, body, .. }) => {
-            Index::with_nesting(nesting) + eval_expr(cond, nesting) + eval_block(body, nesting)
+            Index::with_nesting(nesting)
+                + eval_expr(cond, nesting)
+                + eval_block(body, nesting.increase())
         }
         Expr::Continue(_) | Expr::Break(_) => Index::one(),
 
