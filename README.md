@@ -38,17 +38,17 @@ use complexity::Complexity;
 use syn::{ItemFn, parse_quote};
 ```
 
-Loops and branching increment the complexity by one each. Additionally,
-`continue` and `break` statements increment the complexity by one.
+Loops and branching increment the complexity by one each. Some syntax structures
+introduce a "nesting" level which affects certain sub items.
 
 ```rust
 let func: ItemFn = parse_quote! {
     fn sum_of_primes(max: u64) -> u64 {
         let mut total = 0;
-        'outer: for i in 1..=max {
-            for j in 2..i {
-                if i % j == 0 {
-                    continue 'outer;
+        'outer: for i in 1..=max {   // +1
+            for j in 2..i {          // +2 (nesting = 1)
+                if i % j == 0 {      // +3 (nesting = 2)
+                    continue 'outer; // +1
                 }
             }
             total += i;
@@ -58,13 +58,14 @@ let func: ItemFn = parse_quote! {
 assert_eq!(func.complexity(), 7);
 ```
 
-However, a `match` only increases the complexity by one no matter how many
-branches there are.
+Certain structures a rewarded. Particularly a `match` statement, which only
+increases the complexity by one no matter how many branches there are. (It does
+increase the nesting level though.)
 
 ```rust
 let func: ItemFn = parse_quote! {
     fn get_words(number: u64) -> &str {
-        match number {
+        match number {       // +1
             1 => "one",
             2 => "a couple",
             3 => "a few",

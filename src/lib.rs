@@ -16,10 +16,10 @@
 //! let func: ItemFn = parse_quote! {
 //!     fn sum_of_primes(max: u64) -> u64 {
 //!         let mut total = 0;
-//!         'outer: for i in 1..=max {
-//!             for j in 2..i {
-//!                 if i % j == 0 {
-//!                     continue 'outer;
+//!         'outer: for i in 1..=max {   // +1
+//!             for j in 2..i {          // +2 (nesting = 1)
+//!                 if i % j == 0 {      // +3 (nesting = 2)
+//!                     continue 'outer; // +1
 //!                 }
 //!             }
 //!             total += i;
@@ -38,7 +38,7 @@
 //!
 //! let func: ItemFn = parse_quote! {
 //!     fn get_words(number: u64) -> &str {
-//!         match number {
+//!         match number {       // +1
 //!             1 => "one",
 //!             2 => "a couple",
 //!             3 => "a few",
