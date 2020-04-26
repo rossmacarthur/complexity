@@ -74,19 +74,19 @@ pub trait Complexity: private::Sealed {
 
 impl Complexity for Expr {
     fn complexity(&self) -> u64 {
-        eval_expr(self, Nesting::zero()).0.into()
+        eval_expr(self, State::default()).0.into()
     }
 }
 
 impl Complexity for ItemFn {
     fn complexity(&self) -> u64 {
-        eval_block(&self.block, Nesting::zero()).0.into()
+        eval_block(&self.block, State::default()).0.into()
     }
 }
 
 impl Complexity for ImplItemMethod {
     fn complexity(&self) -> u64 {
-        eval_block(&self.block, Nesting::zero()).0.into()
+        eval_block(&self.block, State::default()).0.into()
     }
 }
 
@@ -94,26 +94,25 @@ impl Complexity for ImplItemMethod {
 // Index type
 /////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Copy, Clone)]
+/// Represents a complexity index.
+#[derive(Debug, Clone, Copy)]
 struct Index(u32);
 
 impl Index {
-    /// Construct a new zero `Index`.
-    #[inline]
+    /// Construct a new zero `Index` that does not contribute to complexity.
     fn zero() -> Self {
         Self(0)
     }
 
-    /// Construct a new `Index` of one.
-    #[inline]
+    /// Construct a new `Index` that adds one to the complexity.
     fn one() -> Self {
         Self(1)
     }
 
-    /// Construct a new `Index` based on the Nesting.
-    #[inline]
-    fn with_nesting(n: Nesting) -> Self {
-        Self(1 + n.0)
+    /// Construct a new `Index` that adds one to the complexity and one for each
+    /// level of nesting.
+    fn with_context(state: &State) -> Self {
+        Self(state.nesting + 1)
     }
 }
 
@@ -121,13 +120,16 @@ impl ops::Add for Index {
     type Output = Self;
 
     /// Add one `Index` to another.
-    #[inline]
+    ///
+    /// This simply is the addition of both complexities.
     fn add(self, other: Self) -> Self {
         Self(self.0 + other.0)
     }
 }
 
 impl iter::Sum<Index> for Index {
+    /// Sum an iterable of `Index` by simply accumulating all the complexities
+    /// into one.
     fn sum<I>(iter: I) -> Self
     where
         I: Iterator<Item = Self>,
@@ -137,21 +139,75 @@ impl iter::Sum<Index> for Index {
 }
 
 /////////////////////////////////////////////////////////////////////////
-// Nesting type
+// Logical boolean operator type
 /////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Copy, Clone)]
-struct Nesting(u32);
+/// Represents a logical boolean operator.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum LogBoolOp {
+    /// The `!` operator (logical not).
+    Not,
+    /// The `&&` operator (logical and).
+    And,
+    /// The `||` operator (logical or).
+    Or,
+}
 
-impl Nesting {
-    #[inline]
-    fn zero() -> Self {
-        Self(0)
+impl LogBoolOp {
+    /// Create a new `LogBoolOp` from a `syn::UnOp`.
+    fn from_un_op(un_op: &UnOp) -> Option<Self> {
+        match un_op {
+            UnOp::Not(_) => Some(Self::Not),
+            _ => None,
+        }
     }
 
-    #[inline]
-    fn increase(self) -> Self {
-        Self(self.0 + 1)
+    /// Create a new `LogBoolOp` from a `syn::BinOp`.
+    fn from_bin_op(bin_op: &BinOp) -> Option<Self> {
+        match bin_op {
+            BinOp::And(_) => Some(Self::And),
+            BinOp::Or(_) => Some(Self::Or),
+            _ => None,
+        }
+    }
+
+    /// Compares this `LogBoolOp` with the previous one and returns a complexity
+    /// index.
+    fn eval_based_on_prev(&self, prev: Option<LogBoolOp>) -> Index {
+        match (prev, self) {
+            (Some(prev), current) => {
+                if &prev == current {
+                    Index::zero()
+                } else {
+                    Index::one()
+                }
+            }
+            (None, _) => Index::one(),
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////
+// State type
+/////////////////////////////////////////////////////////////////////////
+
+/// Represents the current state during parsing. We use this type to track the
+/// nesting level and the previous logical boolean operator.
+#[derive(Debug, Default, Clone, Copy)]
+struct State {
+    /// The nesting level.
+    nesting: u32,
+    /// The previous logical boolean operator.
+    log_bool_op: Option<LogBoolOp>,
+}
+
+impl State {
+    /// Create a new `State` with an extra level of nesting.
+    fn increase_nesting(self) -> Self {
+        Self {
+            nesting: self.nesting + 1,
+            log_bool_op: self.log_bool_op,
+        }
     }
 }
 
@@ -160,34 +216,67 @@ impl Nesting {
 /////////////////////////////////////////////////////////////////////////
 
 /// Returns the complexity of a `syn::Block`.
-fn eval_block(block: &Block, nesting: Nesting) -> Index {
+fn eval_block(block: &Block, state: State) -> Index {
     block
         .stmts
         .iter()
-        .map(|e| eval_stmt(e, nesting))
+        .map(|e| eval_stmt(e, state))
         .sum::<Index>()
 }
 
 /// Returns the complexity of a `syn::Stmt`.
-fn eval_stmt(stmt: &Stmt, nesting: Nesting) -> Index {
+fn eval_stmt(stmt: &Stmt, state: State) -> Index {
     match stmt {
         Stmt::Local(Local {
             init: Some((_, expr)),
             ..
-        }) => eval_expr(expr, nesting),
+        }) => eval_expr(expr, state),
         Stmt::Local(Local { init: None, .. }) => Index::zero(),
-        Stmt::Item(item) => eval_item(item, nesting),
-        Stmt::Expr(expr) | Stmt::Semi(expr, _) => eval_expr(expr, nesting),
+        Stmt::Item(item) => eval_item(item, state),
+        Stmt::Expr(expr) | Stmt::Semi(expr, _) => eval_expr(expr, state),
     }
 }
 
 /// Returns the complexity of a `syn::Item`.
-fn eval_item(item: &Item, n: Nesting) -> Index {
+fn eval_item(item: &Item, state: State) -> Index {
     match item {
-        Item::Const(ItemConst { expr, .. }) => eval_expr(expr, n),
-        Item::Static(ItemStatic { expr, .. }) => eval_expr(expr, n),
+        Item::Const(ItemConst { expr, .. }) => eval_expr(expr, state),
+        Item::Static(ItemStatic { expr, .. }) => eval_expr(expr, state),
         _ => Index::zero(),
     }
+}
+
+/// Returns the complexity of a `syn::ExprUnary`.
+///
+/// This function also updates the previous logical boolean operator if it is
+/// `!`.
+fn eval_expr_unary(expr_unary: &ExprUnary, mut state: State) -> Index {
+    let ExprUnary { op, expr, .. } = expr_unary;
+    if let Some(current) = LogBoolOp::from_un_op(op) {
+        state.log_bool_op = Some(current);
+    }
+    eval_expr(expr, state)
+}
+
+/// Returns the complexity of a `syn::ExprBinary`.
+///
+/// This function handles logical boolean operators `&&` and `||` by doing the
+/// following:
+/// - If the operator is the different then add one to the complexity.
+/// - Update the previous logical boolean operator.
+fn eval_expr_binary(expr_binary: &ExprBinary, mut state: State) -> Index {
+    let ExprBinary {
+        left, op, right, ..
+    } = expr_binary;
+    let index = match LogBoolOp::from_bin_op(op) {
+        Some(current) => {
+            let index = current.eval_based_on_prev(state.log_bool_op);
+            state.log_bool_op = Some(current);
+            index
+        }
+        None => Index::zero(),
+    };
+    index + eval_expr(left, state) + eval_expr(right, state)
 }
 
 /// Returns the complexity of a `syn::Expr`.
@@ -195,19 +284,23 @@ fn eval_item(item: &Item, n: Nesting) -> Index {
 /// This function contains most of the logic for calculating cognitive
 /// complexity. Expressions that create nesting increase the complexity and
 /// expressions that increase the branching increasing the complexity.
-fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
+fn eval_expr(expr: &Expr, state: State) -> Index {
     match expr {
         // Expressions that map to multiple expressions.
         // --------------------------------------------
         Expr::Array(ExprArray { elems, .. }) | Expr::Tuple(ExprTuple { elems, .. }) => {
-            elems.iter().map(|e| eval_expr(e, nesting)).sum()
+            elems.iter().map(|e| eval_expr(e, state)).sum()
         }
+
+        // Handle logical binary operators.
+        // -------------------------------
+        Expr::Unary(expr_unary) => eval_expr_unary(expr_unary, state),
+        Expr::Binary(expr_binary) => eval_expr_binary(expr_binary, state),
 
         // Expressions that have a left and right part.
         // --------------------------------------------
         Expr::Assign(ExprAssign { left, right, .. })
         | Expr::AssignOp(ExprAssignOp { left, right, .. })
-        | Expr::Binary(ExprBinary { left, right, .. })
         | Expr::Index(ExprIndex {
             expr: left,
             index: right,
@@ -217,24 +310,24 @@ fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
             expr: left,
             len: right,
             ..
-        }) => eval_expr(left, nesting) + eval_expr(right, nesting),
+        }) => eval_expr(left, state) + eval_expr(right, state),
 
         Expr::Range(ExprRange { from, to, .. }) => {
             from.as_ref()
-                .map(|e| eval_expr(e, nesting))
+                .map(|e| eval_expr(e, state))
                 .unwrap_or_else(Index::zero)
                 + to.as_ref()
-                    .map(|e| eval_expr(e, nesting))
+                    .map(|e| eval_expr(e, state))
                     .unwrap_or_else(Index::zero)
         }
 
         // Expressions that create a nested block like `async { .. }`.
-        // ---------------------------------------------------
+        // ----------------------------------------------------------
         Expr::Async(ExprAsync { block, .. })
         | Expr::Block(ExprBlock { block, .. })
         | Expr::Loop(ExprLoop { body: block, .. })
         | Expr::TryBlock(ExprTryBlock { block, .. })
-        | Expr::Unsafe(ExprUnsafe { block, .. }) => eval_block(block, nesting.increase()),
+        | Expr::Unsafe(ExprUnsafe { block, .. }) => eval_block(block, state.increase_nesting()),
 
         // Expressions that wrap a single expression.
         // ------------------------------------------
@@ -255,10 +348,9 @@ fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
         })
         | Expr::Try(ExprTry { expr, .. })
         | Expr::Type(ExprType { expr, .. })
-        | Expr::Unary(ExprUnary { expr, .. })
         | Expr::Yield(ExprYield {
             expr: Some(expr), ..
-        }) => eval_expr(expr, nesting),
+        }) => eval_expr(expr, state),
 
         // Expressions that introduce branching.
         // ------------------------------------
@@ -268,34 +360,34 @@ fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
             else_branch,
             ..
         }) => {
-            Index::with_nesting(nesting)
-                + eval_expr(cond, nesting)
-                + eval_block(then_branch, nesting.increase())
+            Index::with_context(&state)
+                + eval_expr(cond, state)
+                + eval_block(then_branch, state.increase_nesting())
                 + else_branch
                     .as_ref()
-                    .map(|(_, expr)| Index::one() + eval_expr(&expr, nesting.increase()))
+                    .map(|(_, expr)| Index::one() + eval_expr(&expr, state.increase_nesting()))
                     .unwrap_or_else(Index::zero)
         }
         Expr::Match(ExprMatch { expr, arms, .. }) => {
-            Index::with_nesting(nesting)
-                + eval_expr(expr, nesting)
+            Index::with_context(&state)
+                + eval_expr(expr, state)
                 + arms
                     .iter()
                     .map(|arm| {
-                        eval_opt_t_expr(&arm.guard, nesting)
-                            + eval_expr(&arm.body, nesting.increase())
+                        eval_opt_t_expr(&arm.guard, state)
+                            + eval_expr(&arm.body, state.increase_nesting())
                     })
                     .sum::<Index>()
         }
         Expr::ForLoop(ExprForLoop { expr, body, .. }) => {
-            Index::with_nesting(nesting)
-                + eval_expr(expr, nesting)
-                + eval_block(body, nesting.increase())
+            Index::with_context(&state)
+                + eval_expr(expr, state)
+                + eval_block(body, state.increase_nesting())
         }
         Expr::While(ExprWhile { cond, body, .. }) => {
-            Index::with_nesting(nesting)
-                + eval_expr(cond, nesting)
-                + eval_block(body, nesting.increase())
+            Index::with_context(&state)
+                + eval_expr(cond, state)
+                + eval_block(body, state.increase_nesting())
         }
         Expr::Continue(_) | Expr::Break(_) => Index::one(),
 
@@ -304,18 +396,18 @@ fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
         Expr::Struct(ExprStruct { fields, rest, .. }) => {
             fields
                 .iter()
-                .map(|v| eval_expr(&v.expr, nesting))
+                .map(|v| eval_expr(&v.expr, state))
                 .sum::<Index>()
                 + rest
                     .as_ref()
-                    .map(|e| eval_expr(e, nesting))
+                    .map(|e| eval_expr(e, state))
                     .unwrap_or_else(Index::zero)
         }
         Expr::Call(ExprCall { func, args, .. }) => {
-            eval_expr(func, nesting) + args.iter().map(|a| eval_expr(a, nesting)).sum::<Index>()
+            eval_expr(func, state) + args.iter().map(|a| eval_expr(a, state)).sum::<Index>()
         }
         Expr::MethodCall(ExprMethodCall { receiver, args, .. }) => {
-            eval_expr(receiver, nesting) + args.iter().map(|a| eval_expr(a, nesting)).sum::<Index>()
+            eval_expr(receiver, state) + args.iter().map(|a| eval_expr(a, state)).sum::<Index>()
         }
 
         _ => Index::zero(),
@@ -323,10 +415,10 @@ fn eval_expr(expr: &Expr, nesting: Nesting) -> Index {
 }
 
 /// Returns the complexity of a optional `syn::Expr`.
-fn eval_opt_t_expr<T>(opt_expr: &Option<(T, Box<Expr>)>, nesting: Nesting) -> Index {
+fn eval_opt_t_expr<T>(opt_expr: &Option<(T, Box<Expr>)>, state: State) -> Index {
     opt_expr
         .as_ref()
-        .map(|(_, expr)| eval_expr(expr, nesting))
+        .map(|(_, expr)| eval_expr(expr, state))
         .unwrap_or_else(Index::zero)
 }
 
@@ -432,6 +524,42 @@ mod tests {
                 }
             }
         };
+        assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn logical_boolean_operators_same() {
+        let expr: Expr = parse_quote! { x && y };
+        assert_eq!(expr.complexity(), 1);
+        let expr: Expr = parse_quote! { x && y && z };
+        assert_eq!(expr.complexity(), 1);
+        let expr: Expr = parse_quote! { w && x && y && z };
+        assert_eq!(expr.complexity(), 1);
+        let expr: Expr = parse_quote! { x || y };
+        assert_eq!(expr.complexity(), 1);
+        let expr: Expr = parse_quote! { x || y || z };
+        assert_eq!(expr.complexity(), 1);
+        let expr: Expr = parse_quote! { w || x || y || z };
+        assert_eq!(expr.complexity(), 1);
+    }
+
+    #[test]
+    fn logical_boolean_operators_changing() {
+        let expr: Expr = parse_quote! { w && x || y || z };
+        assert_eq!(expr.complexity(), 2);
+        let expr: Expr = parse_quote! { w && x && y || z };
+        assert_eq!(expr.complexity(), 2);
+        let expr: Expr = parse_quote! { w && x || y && z };
+        assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn logical_boolean_operators_not_operator() {
+        let expr: Expr = parse_quote! { !a && !b };
+        assert_eq!(expr.complexity(), 1);
+        let expr: Expr = parse_quote! { a && !(b && c) };
+        assert_eq!(expr.complexity(), 2);
+        let expr: Expr = parse_quote! { !(a || b) && !(c || d) };
         assert_eq!(expr.complexity(), 3);
     }
 }
