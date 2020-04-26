@@ -64,7 +64,7 @@
 //! only increases the complexity by one no matter how many branches there are.
 //! (It does increase the nesting level though.) In the example below we see how
 //! even though there are a lot of branches in the code (which would contribute
-//! a lot to a more traditional *cylomatic complexity* measurement), the
+//! a lot to a more traditional *cyclomatic complexity* measurement), the
 //! complexity is quite low at **1**.
 //!
 //! ```rust

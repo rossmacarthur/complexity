@@ -24,7 +24,7 @@ Add `complexity` to your `Cargo.toml`.
 
 ```
 [dependencies]
-complexity = "0.1"
+complexity = "0.2"
 syn = "1"
 ```
 
@@ -86,7 +86,7 @@ But some structures are rewarded. Particularly a `match` statement, which only
 increases the complexity by one no matter how many branches there are. (It does
 increase the nesting level though.) In the example below we see how even though
 there are a lot of branches in the code (which would contribute a lot to a more
-traditional *cylomatic complexity* measurement), the complexity is quite low at
+traditional *cyclomatic complexity* measurement), the complexity is quite low at
 **1**.
 
 ```rust
@@ -116,8 +116,8 @@ cargo run --example lint-files -- src/
 ```
 
 [pdf]: https://www.sonarsource.com/docs/CognitiveComplexity.pdf
-[`Complexity`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html
-[`.complexity()`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html#tymethod.complexity
+[`Complexity`]: https://docs.rs/complexity/0.2/complexity/trait.Complexity.html
+[`.complexity()`]: https://docs.rs/complexity/0.2/complexity/trait.Complexity.html#tymethod.complexity
 [`syn`]: https://docs.rs/syn/1
 
 ## License

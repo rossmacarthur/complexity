@@ -2,7 +2,7 @@
 
 ## 0.2.0
 
-*Unreleased*
+*Release on April 26th, 2020*
 
 - [`.complexity()` now returns a `u32` instead of a `u64`.](695cf51)
 
