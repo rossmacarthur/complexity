@@ -14,7 +14,7 @@ use syn::{self, File, ImplItem, Item, Type, TypePath};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Function {
-    complexity: u64,
+    complexity: u32,
     name: String,
 }
 
@@ -80,7 +80,7 @@ fn resolve_paths(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     Ok(result)
 }
 
-fn run(paths: Vec<PathBuf>, max_complexity: &Option<u64>) -> Result<bool> {
+fn run(paths: Vec<PathBuf>, max_complexity: &Option<u32>) -> Result<bool> {
     let mut table = tabular::Table::new("{:<}    {:>}");
     let mut result = false;
     for path in resolve_paths(paths)? {
@@ -115,7 +115,7 @@ struct Opt {
     /// Require functions/methods that have a complexity greater than or equal
     /// to this.
     #[structopt(short, long, name = "INT")]
-    max_complexity: Option<u64>,
+    max_complexity: Option<u32>,
 }
 
 fn main() -> Result<()> {

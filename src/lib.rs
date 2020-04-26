@@ -118,24 +118,24 @@ mod private {
 /// This is a *sealed* trait so only this crate can implement it.
 pub trait Complexity: private::Sealed {
     /// Returns the cognitive complexity index for the implementor.
-    fn complexity(&self) -> u64;
+    fn complexity(&self) -> u32;
 }
 
 impl Complexity for Expr {
-    fn complexity(&self) -> u64 {
-        eval_expr(self, State::default()).0.into()
+    fn complexity(&self) -> u32 {
+        eval_expr(self, State::default()).0
     }
 }
 
 impl Complexity for ItemFn {
-    fn complexity(&self) -> u64 {
-        eval_block(&self.block, State::default()).0.into()
+    fn complexity(&self) -> u32 {
+        eval_block(&self.block, State::default()).0
     }
 }
 
 impl Complexity for ImplItemMethod {
-    fn complexity(&self) -> u64 {
-        eval_block(&self.block, State::default()).0.into()
+    fn complexity(&self) -> u32 {
+        eval_block(&self.block, State::default()).0
     }
 }
 
