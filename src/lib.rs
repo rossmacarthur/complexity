@@ -94,8 +94,8 @@
 //! ```
 //!
 //! [pdf]: https://www.sonarsource.com/docs/CognitiveComplexity.pdf
-//! [`Complexity`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html
-//! [`.complexity()`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html#tymethod.complexity
+//! [`Complexity`]: trait.Complexity.html
+//! [`.complexity()`]: trait.Complexity.html#tymethod.complexity
 //! [`syn`]: https://docs.rs/syn/1
 
 use std::{iter, ops};
