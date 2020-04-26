@@ -111,7 +111,7 @@ impl Index {
 
     /// Construct a new `Index` that adds one to the complexity and one for each
     /// level of nesting.
-    fn with_context(state: &State) -> Self {
+    fn with_context(state: State) -> Self {
         Self(state.nesting + 1)
     }
 }
@@ -155,7 +155,7 @@ enum LogBoolOp {
 
 impl LogBoolOp {
     /// Create a new `LogBoolOp` from a `syn::UnOp`.
-    fn from_un_op(un_op: &UnOp) -> Option<Self> {
+    fn from_un_op(un_op: UnOp) -> Option<Self> {
         match un_op {
             UnOp::Not(_) => Some(Self::Not),
             _ => None,
@@ -173,10 +173,10 @@ impl LogBoolOp {
 
     /// Compares this `LogBoolOp` with the previous one and returns a complexity
     /// index.
-    fn eval_based_on_prev(&self, prev: Option<LogBoolOp>) -> Index {
+    fn eval_based_on_prev(self, prev: Option<Self>) -> Index {
         match (prev, self) {
             (Some(prev), current) => {
-                if &prev == current {
+                if prev == current {
                     Index::zero()
                 } else {
                     Index::one()
@@ -252,7 +252,7 @@ fn eval_item(item: &Item, state: State) -> Index {
 /// `!`.
 fn eval_expr_unary(expr_unary: &ExprUnary, mut state: State) -> Index {
     let ExprUnary { op, expr, .. } = expr_unary;
-    if let Some(current) = LogBoolOp::from_un_op(op) {
+    if let Some(current) = LogBoolOp::from_un_op(*op) {
         state.log_bool_op = Some(current);
     }
     eval_expr(expr, state)
@@ -360,7 +360,7 @@ fn eval_expr(expr: &Expr, state: State) -> Index {
             else_branch,
             ..
         }) => {
-            Index::with_context(&state)
+            Index::with_context(state)
                 + eval_expr(cond, state)
                 + eval_block(then_branch, state.increase_nesting())
                 + else_branch
@@ -369,7 +369,7 @@ fn eval_expr(expr: &Expr, state: State) -> Index {
                     .unwrap_or_else(Index::zero)
         }
         Expr::Match(ExprMatch { expr, arms, .. }) => {
-            Index::with_context(&state)
+            Index::with_context(state)
                 + eval_expr(expr, state)
                 + arms
                     .iter()
@@ -380,12 +380,12 @@ fn eval_expr(expr: &Expr, state: State) -> Index {
                     .sum::<Index>()
         }
         Expr::ForLoop(ExprForLoop { expr, body, .. }) => {
-            Index::with_context(&state)
+            Index::with_context(state)
                 + eval_expr(expr, state)
                 + eval_block(body, state.increase_nesting())
         }
         Expr::While(ExprWhile { cond, body, .. }) => {
-            Index::with_context(&state)
+            Index::with_context(state)
                 + eval_expr(cond, state)
                 + eval_block(body, state.increase_nesting())
         }
