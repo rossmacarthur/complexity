@@ -279,6 +279,88 @@ fn eval_expr_binary(expr_binary: &ExprBinary, mut state: State) -> Index {
     index + eval_expr(left, state) + eval_expr(right, state)
 }
 
+/// Returns the complexity of a `syn::ExprRange`.
+fn eval_expr_range(expr_range: &ExprRange, state: State) -> Index {
+    let ExprRange { from, to, .. } = expr_range;
+    from.as_ref()
+        .map(|e| eval_expr(e, state))
+        .unwrap_or_else(Index::zero)
+        + to.as_ref()
+            .map(|e| eval_expr(e, state))
+            .unwrap_or_else(Index::zero)
+}
+
+/// Returns the complexity of a `syn::ExprIf`.
+fn eval_expr_if(expr_if: &ExprIf, state: State) -> Index {
+    let ExprIf {
+        cond,
+        then_branch,
+        else_branch,
+        ..
+    } = expr_if;
+    Index::with_context(state)
+        + eval_expr(cond, state)
+        + eval_block(then_branch, state.increase_nesting())
+        + else_branch
+            .as_ref()
+            .map(|(_, expr)| Index::one() + eval_expr(&expr, state.increase_nesting()))
+            .unwrap_or_else(Index::zero)
+}
+
+/// Returns the complexity of a `syn::ExprMatch`.
+fn eval_expr_match(expr_match: &ExprMatch, state: State) -> Index {
+    let ExprMatch { expr, arms, .. } = expr_match;
+    Index::with_context(state)
+        + eval_expr(expr, state)
+        + arms
+            .iter()
+            .map(|arm| {
+                arm.guard
+                    .as_ref()
+                    .map(|(_, expr)| eval_expr(&expr, state))
+                    .unwrap_or_else(Index::zero)
+                    + eval_expr(&arm.body, state.increase_nesting())
+            })
+            .sum::<Index>()
+}
+
+/// Returns the complexity of a `syn::ExprForLoop`.
+fn eval_expr_for_loop(expr_for_loop: &ExprForLoop, state: State) -> Index {
+    let ExprForLoop { expr, body, .. } = expr_for_loop;
+    Index::with_context(state) + eval_expr(expr, state) + eval_block(body, state.increase_nesting())
+}
+
+/// Returns the complexity of a `syn::ExprWhile`.
+fn eval_expr_while(expr_while: &ExprWhile, state: State) -> Index {
+    let ExprWhile { cond, body, .. } = expr_while;
+    Index::with_context(state) + eval_expr(cond, state) + eval_block(body, state.increase_nesting())
+}
+
+/// Returns the complexity of a `syn::ExprStruct`.
+fn eval_expr_struct(expr_struct: &ExprStruct, state: State) -> Index {
+    let ExprStruct { fields, rest, .. } = expr_struct;
+    fields
+        .iter()
+        .map(|v| eval_expr(&v.expr, state))
+        .sum::<Index>()
+        + rest
+            .as_ref()
+            .map(|e| eval_expr(e, state))
+            .unwrap_or_else(Index::zero)
+}
+
+/// Returns the complexity of a `syn::ExprCall`.
+fn eval_expr_call(expr_call: &ExprCall, state: State) -> Index {
+    let ExprCall { func, args, .. } = expr_call;
+    eval_expr(func, state) + args.iter().map(|a| eval_expr(a, state)).sum::<Index>()
+}
+
+/// Returns the complexity of a `syn::ExprMethodCall`.
+fn eval_expr_method_call(expr_method_call: &ExprMethodCall, state: State) -> Index {
+    let ExprMethodCall { receiver, args, .. } = expr_method_call;
+    eval_expr(receiver, state) + args.iter().map(|a| eval_expr(a, state)).sum::<Index>()
+}
+
 /// Returns the complexity of a `syn::Expr`.
 ///
 /// This function contains most of the logic for calculating cognitive
@@ -292,8 +374,9 @@ fn eval_expr(expr: &Expr, state: State) -> Index {
             elems.iter().map(|e| eval_expr(e, state)).sum()
         }
 
-        // Handle logical binary operators.
-        // -------------------------------
+        // Unary and binary operators.
+        // ---------------------------
+        // These are handled specially because of logical boolean operator complexity.
         Expr::Unary(expr_unary) => eval_expr_unary(expr_unary, state),
         Expr::Binary(expr_binary) => eval_expr_binary(expr_binary, state),
 
@@ -312,22 +395,21 @@ fn eval_expr(expr: &Expr, state: State) -> Index {
             ..
         }) => eval_expr(left, state) + eval_expr(right, state),
 
-        Expr::Range(ExprRange { from, to, .. }) => {
-            from.as_ref()
-                .map(|e| eval_expr(e, state))
-                .unwrap_or_else(Index::zero)
-                + to.as_ref()
-                    .map(|e| eval_expr(e, state))
-                    .unwrap_or_else(Index::zero)
-        }
+        Expr::Range(expr_range) => eval_expr_range(expr_range, state),
 
         // Expressions that create a nested block like `async { .. }`.
-        // ----------------------------------------------------------
+        // -----------------------------------------------------------
         Expr::Async(ExprAsync { block, .. })
         | Expr::Block(ExprBlock { block, .. })
         | Expr::Loop(ExprLoop { body: block, .. })
         | Expr::TryBlock(ExprTryBlock { block, .. })
         | Expr::Unsafe(ExprUnsafe { block, .. }) => eval_block(block, state.increase_nesting()),
+        Expr::ForLoop(expr_for_loop) => eval_expr_for_loop(expr_for_loop, state),
+        Expr::While(expr_while) => eval_expr_while(expr_while, state),
+
+        // Expressions that do not not nest any further, and do not contribute to complexity.
+        // ----------------------------------------------------------------------------------
+        Expr::Lit(_) | Expr::Path(_) => Index::zero(),
 
         // Expressions that wrap a single expression.
         // ------------------------------------------
@@ -353,73 +435,23 @@ fn eval_expr(expr: &Expr, state: State) -> Index {
         }) => eval_expr(expr, state),
 
         // Expressions that introduce branching.
-        // ------------------------------------
-        Expr::If(ExprIf {
-            cond,
-            then_branch,
-            else_branch,
-            ..
-        }) => {
-            Index::with_context(state)
-                + eval_expr(cond, state)
-                + eval_block(then_branch, state.increase_nesting())
-                + else_branch
-                    .as_ref()
-                    .map(|(_, expr)| Index::one() + eval_expr(&expr, state.increase_nesting()))
-                    .unwrap_or_else(Index::zero)
-        }
-        Expr::Match(ExprMatch { expr, arms, .. }) => {
-            Index::with_context(state)
-                + eval_expr(expr, state)
-                + arms
-                    .iter()
-                    .map(|arm| {
-                        eval_opt_t_expr(&arm.guard, state)
-                            + eval_expr(&arm.body, state.increase_nesting())
-                    })
-                    .sum::<Index>()
-        }
-        Expr::ForLoop(ExprForLoop { expr, body, .. }) => {
-            Index::with_context(state)
-                + eval_expr(expr, state)
-                + eval_block(body, state.increase_nesting())
-        }
-        Expr::While(ExprWhile { cond, body, .. }) => {
-            Index::with_context(state)
-                + eval_expr(cond, state)
-                + eval_block(body, state.increase_nesting())
-        }
+        // -------------------------------------
+        Expr::If(expr_if) => eval_expr_if(expr_if, state),
+        Expr::Match(expr_match) => eval_expr_match(expr_match, state),
         Expr::Continue(_) | Expr::Break(_) => Index::one(),
 
         // Expressions that call functions / construct types.
-        // -------------------------------------------------
-        Expr::Struct(ExprStruct { fields, rest, .. }) => {
-            fields
-                .iter()
-                .map(|v| eval_expr(&v.expr, state))
-                .sum::<Index>()
-                + rest
-                    .as_ref()
-                    .map(|e| eval_expr(e, state))
-                    .unwrap_or_else(Index::zero)
-        }
-        Expr::Call(ExprCall { func, args, .. }) => {
-            eval_expr(func, state) + args.iter().map(|a| eval_expr(a, state)).sum::<Index>()
-        }
-        Expr::MethodCall(ExprMethodCall { receiver, args, .. }) => {
-            eval_expr(receiver, state) + args.iter().map(|a| eval_expr(a, state)).sum::<Index>()
-        }
+        // --------------------------------------------------
+        Expr::Struct(expr_struct) => eval_expr_struct(expr_struct, state),
+        Expr::Call(expr_call) => eval_expr_call(expr_call, state),
+        Expr::MethodCall(expr_method_call) => eval_expr_method_call(expr_method_call, state),
+        // FIXME: should we attempt to parse macro the tokens into something that we can calculate
+        // the complexity for?
+        Expr::Macro(_) => Index::zero(),
 
+        // `Expr` is non-exhaustive, so this has to be here. But we should have handled everything.
         _ => Index::zero(),
     }
-}
-
-/// Returns the complexity of a optional `syn::Expr`.
-fn eval_opt_t_expr<T>(opt_expr: &Option<(T, Box<Expr>)>, state: State) -> Index {
-    opt_expr
-        .as_ref()
-        .map(|(_, expr)| eval_expr(expr, state))
-        .unwrap_or_else(Index::zero)
 }
 
 /////////////////////////////////////////////////////////////////////////
