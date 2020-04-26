@@ -2,14 +2,45 @@
 //!
 //! Based on [Cognitive Complexity][pdf] by G. Ann Campbell.
 //!
-//! [pdf]: https://www.sonarsource.com/docs/CognitiveComplexity.pdf
+//! ## Getting started
 //!
-//! # Examples
+//! You'll need to bring the [`Complexity`] trait into scope, and probably some
+//! things from [`syn`].
 //!
-//! Loops and branching increment the complexity by one each. Additionally,
-//! `continue` and `break` statements increment the complexity by one.
-//!
+//! ```rust
+//! use complexity::Complexity;
+//! use syn::{Expr, parse_quote};
 //! ```
+//!
+//! Complexity of expressions and other [`syn`] types is as simple as calling
+//! [`.complexity()`] on an instance of that type.
+//!
+//! ```rust
+//! # use complexity::Complexity;
+//! # use syn::{Expr, parse_quote};
+//! let expr: Expr = parse_quote! {
+//!     for element in iterable { // +1
+//!         if something {        // +2 (nesting = 1)
+//!             do_something();
+//!         }
+//!     }
+//! };
+//! assert_eq!(expr.complexity(), 3);
+//! ```
+//!
+//! ## Examples
+//!
+//! The implementation of cognitive complexity in this crate is heavily based on
+//! [Cognitive Complexity][pdf] by G. Ann Campbell. And reading it would be
+//! beneficial to understanding how the complexity index is calculated.
+//!
+//! Loops and structures that introduce branching increment the complexity by
+//! one each. Some syntax structures introduce a "nesting" level which increases
+//! some expressions complexity by that nesting level in addition to their
+//! regular increment. In the example below we see how two nested loops and an
+//! if statement can produce quite a high complexity of **7**.
+//!
+//! ```rust
 //! use complexity::Complexity;
 //! use syn::{ItemFn, parse_quote};
 //!
@@ -29,10 +60,14 @@
 //! assert_eq!(func.complexity(), 7);
 //! ```
 //!
-//! However, a `match` only increases the complexity by one no matter how many
-//! branches there are.
+//! But some structures are rewarded. Particularly a `match` statement, which
+//! only increases the complexity by one no matter how many branches there are.
+//! (It does increase the nesting level though.) In the example below we see how
+//! even though there are a lot of branches in the code (which would contribute
+//! a lot to a more traditional *cylomatic complexity* measurement), the
+//! complexity is quite low at **1**.
 //!
-//! ```
+//! ```rust
 //! use complexity::Complexity;
 //! use syn::{ItemFn, parse_quote};
 //!
@@ -48,6 +83,20 @@
 //! };
 //! assert_eq!(func.complexity(), 1);
 //! ```
+//!
+//! An example is provided to calculate and nicely print out the cognitive
+//! complexity of each function and method in an entire Rust file. See
+//! [examples/lint-files.rs](examples/lint-files.rs). You can run it on Rust
+//! files like this:
+//!
+//! ```sh
+//! cargo run --example lint-files -- src/
+//! ```
+//!
+//! [pdf]: https://www.sonarsource.com/docs/CognitiveComplexity.pdf
+//! [`Complexity`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html
+//! [`.complexity()`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html#tymethod.complexity
+//! [`syn`]: https://docs.rs/syn/1
 
 use std::{iter, ops};
 

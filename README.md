@@ -14,11 +14,9 @@
     <img src="https://img.shields.io/github/workflow/status/rossmacarthur/complexity/build/master" alt="Build status" />
   </a>
 </div>
-
+<br>
 
 Based on [Cognitive Complexity][pdf] by G. Ann Campbell.
-
-[pdf]: https://www.sonarsource.com/docs/CognitiveComplexity.pdf
 
 ## Getting started
 
@@ -30,18 +28,44 @@ complexity = "0.1"
 syn = "1"
 ```
 
-You'll need to import the [`Complexity`] trait, and probably some things from
-[`syn`].
+You'll need to bring the [`Complexity`] trait into scope, and probably some
+things from [`syn`].
+
+```rust
+use complexity::Complexity;
+use syn::{Expr, parse_quote};
+```
+
+Complexity of expressions and other [`syn`] types is as simple as calling
+[`.complexity()`] on an instance of that type.
+
+```rust
+let expr: Expr = parse_quote! {
+    for element in iterable { // +1
+        if something {        // +2 (nesting = 1)
+            do_something();
+        }
+    }
+};
+assert_eq!(expr.complexity(), 3);
+```
+
+## Examples
+
+The implementation of cognitive complexity in this crate is heavily based on
+[Cognitive Complexity][pdf] by G. Ann Campbell. And reading it would be
+beneficial to understanding how the complexity index is calculated.
+
+Loops and structures that introduce branching increment the complexity by one
+each. Some syntax structures introduce a "nesting" level which increases some
+expressions complexity by that nesting level in addition to their regular
+increment. In the example below we see how two nested loops and an if statement
+can produce quite a high complexity of **7**.
 
 ```rust
 use complexity::Complexity;
 use syn::{ItemFn, parse_quote};
-```
 
-Loops and branching increment the complexity by one each. Some syntax structures
-introduce a "nesting" level which affects certain sub items.
-
-```rust
 let func: ItemFn = parse_quote! {
     fn sum_of_primes(max: u64) -> u64 {
         let mut total = 0;
@@ -58,11 +82,17 @@ let func: ItemFn = parse_quote! {
 assert_eq!(func.complexity(), 7);
 ```
 
-Certain structures a rewarded. Particularly a `match` statement, which only
+But some structures are rewarded. Particularly a `match` statement, which only
 increases the complexity by one no matter how many branches there are. (It does
-increase the nesting level though.)
+increase the nesting level though.) In the example below we see how even though
+there are a lot of branches in the code (which would contribute a lot to a more
+traditional *cylomatic complexity* measurement), the complexity is quite low at
+**1**.
 
 ```rust
+use complexity::Complexity;
+use syn::{ItemFn, parse_quote};
+
 let func: ItemFn = parse_quote! {
     fn get_words(number: u64) -> &str {
         match number {       // +1
@@ -85,7 +115,9 @@ like this:
 cargo run --example lint-files -- src/
 ```
 
-[`Complexity`]: https://docs.rs/complexity/0.1/trait.Complexity.html
+[pdf]: https://www.sonarsource.com/docs/CognitiveComplexity.pdf
+[`Complexity`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html
+[`.complexity()`]: https://docs.rs/complexity/0.1/complexity/trait.Complexity.html#tymethod.complexity
 [`syn`]: https://docs.rs/syn/1
 
 ## License
