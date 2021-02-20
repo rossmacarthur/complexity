@@ -366,7 +366,7 @@ fn eval_expr_match(expr_match: &ExprMatch, state: State) -> Index {
             .map(|arm| {
                 arm.guard
                     .as_ref()
-                    .map(|(_, expr)| eval_expr(&expr, state))
+                    .map(|(_, expr)| Index::with_context(state) + eval_expr(&expr, state))
                     .unwrap_or_else(Index::zero)
                     + eval_expr(&arm.body, state.increase_nesting())
             })
@@ -596,6 +596,19 @@ mod tests {
     }
 
     #[test]
+    fn while_loop_nesting_increment_break_continue() {
+        let expr: Expr = parse_quote! {
+            if true {                 // +1
+                while true {          // +2 (nesting = 1)
+                    println!("test");
+                    break;            // +1
+                }
+            }
+        };
+        assert_eq!(expr.complexity(), 4);
+    }
+
+    #[test]
     fn match_statement_nesting_increment() {
         let expr: Expr = parse_quote! {
             if true {                          // +1
@@ -606,6 +619,18 @@ mod tests {
             }
         };
         assert_eq!(expr.complexity(), 3);
+    }
+
+    #[test]
+    fn match_statement_if_guard() {
+        let expr: Expr = parse_quote! {
+            match string {                                                       // +1
+                s if s.starts_with("a") || s.ends_with("z") => println!("test"), // +2
+                s if s.starts_with("b")                     => println!("test"), // +1
+                s                                           => println!("test"),
+            }
+        };
+        assert_eq!(expr.complexity(), 4);
     }
 
     #[test]
